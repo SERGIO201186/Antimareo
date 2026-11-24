@@ -13,15 +13,25 @@ import android.graphics.drawable.Icon
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.view.WindowManager
 
-class OverlayService : Service(), LocationListener {
+class OverlayService : Service(), LocationListener, SensorEventListener {
     private var view: DotsView? = null
     private lateinit var wm: WindowManager
     private lateinit var lm: LocationManager
+    private var sm: SensorManager? = null
+    private val grav = FloatArray(3)
+    private val gyro = FloatArray(3)
+    private var hasGyro = false
+    private var lastBearing = Float.NaN
+    private var lastBearingT = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,6 +43,7 @@ class OverlayService : Service(), LocationListener {
         startFg()
         if (view == null) addOverlay()
         startGps()
+        startSensors()
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit().putBoolean("running", true).apply()
         return START_NOT_STICKY
     }
@@ -93,8 +104,50 @@ class OverlayService : Service(), LocationListener {
         }
     }
 
+    private fun startSensors() {
+        val m = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        sm = m
+        val g = m.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        val gr = m.getDefaultSensor(Sensor.TYPE_GRAVITY)
+        hasGyro = g != null && gr != null
+        if (hasGyro) {
+            m.unregisterListener(this)
+            m.registerListener(this, g, SensorManager.SENSOR_DELAY_GAME)
+            m.registerListener(this, gr, SensorManager.SENSOR_DELAY_GAME)
+        }
+    }
+
+    override fun onSensorChanged(e: SensorEvent) {
+        if (e.sensor.type == Sensor.TYPE_GRAVITY) {
+            System.arraycopy(e.values, 0, grav, 0, 3)
+        } else if (e.sensor.type == Sensor.TYPE_GYROSCOPE) {
+            System.arraycopy(e.values, 0, gyro, 0, 3)
+            val n = Math.sqrt((grav[0] * grav[0] + grav[1] * grav[1] + grav[2] * grav[2]).toDouble()).toFloat()
+            if (n > 1f) {
+                // Giro alrededor de la vertical real, sin importar cómo esté el teléfono
+                val yaw = (gyro[0] * grav[0] + gyro[1] * grav[1] + gyro[2] * grav[2]) / n
+                view?.targetYaw = yaw
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
     override fun onLocationChanged(l: Location) {
         view?.targetSpeed = if (l.hasSpeed()) l.speed else 0f
+        // Respaldo si el teléfono no tiene giroscopio: giro estimado con el rumbo del GPS
+        if (!hasGyro && l.hasBearing() && l.speed > 2f) {
+            val t = System.nanoTime()
+            if (!lastBearing.isNaN() && lastBearingT != 0L) {
+                var db = l.bearing - lastBearing
+                while (db > 180f) db -= 360f
+                while (db < -180f) db += 360f
+                val dt = (t - lastBearingT) / 1e9f
+                if (dt > 0.2f) view?.targetYaw = Math.toRadians((-db / dt).toDouble()).toFloat()
+            }
+            lastBearing = l.bearing
+            lastBearingT = t
+        }
     }
 
     override fun onProviderEnabled(provider: String) {}
@@ -105,10 +158,10 @@ class OverlayService : Service(), LocationListener {
 
     override fun onDestroy() {
         try { lm.removeUpdates(this) } catch (e: Exception) {}
+        try { sm?.unregisterListener(this) } catch (e: Exception) {}
         try { view?.let { wm.removeView(it) } } catch (e: Exception) {}
         view = null
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit().putBoolean("running", false).apply()
         super.onDestroy()
     }
 }
-
