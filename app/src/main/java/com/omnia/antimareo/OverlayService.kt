@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -20,6 +21,7 @@ import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.service.quicksettings.TileService
 import android.view.WindowManager
 
 class OverlayService : Service(), LocationListener, SensorEventListener {
@@ -45,6 +47,7 @@ class OverlayService : Service(), LocationListener, SensorEventListener {
         startGps()
         startSensors()
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit().putBoolean("running", true).apply()
+        TileService.requestListeningState(this, ComponentName(this, AntiMareoTile::class.java))
         return START_NOT_STICKY
     }
 
@@ -162,6 +165,7 @@ class OverlayService : Service(), LocationListener, SensorEventListener {
         try { view?.let { wm.removeView(it) } } catch (e: Exception) {}
         view = null
         getSharedPreferences("cfg", Context.MODE_PRIVATE).edit().putBoolean("running", false).apply()
+        TileService.requestListeningState(this, ComponentName(this, AntiMareoTile::class.java))
         super.onDestroy()
     }
 }
