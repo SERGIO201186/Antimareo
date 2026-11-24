@@ -9,6 +9,8 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="AntiMareo"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true">
@@ -23,4 +25,3 @@
             android:foregroundServiceType="location" />
     </application>
 </manifest>
-
